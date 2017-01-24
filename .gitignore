@@ -1,3 +1,6 @@
+data
+utils
+modules
 ./data*
 ./experiments*
 ./utils*
