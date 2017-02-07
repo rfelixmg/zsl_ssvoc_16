@@ -46,7 +46,7 @@ configuration = {
     'embedding_attributes': dataset_ + 'features/word2vec/feature.txt',
     # 'estimation_attributes': dataset_ + '/attributes/class_attribute_labels_continuous.txt',
     #   mlp,
-    'lr': 0.01,
+    'lr': 0.001,
     'lamda_regularizer': 0.000001,
     '#classes': None,
     'baseline_model': 'mlp',
@@ -207,14 +207,14 @@ def build_model():
     input_x = Input(shape=(4096,), name='input_x')
 
     f_x = Dense(300,
-                W_regularizer=l2(configuration['lamda_regularizer']),
+                #W_regularizer=l2(configuration['lamda_regularizer']),
                 name='W_embedding',
                 activation='linear')(input_x)
 
     # input_u = Input(shape=(300,), name='input_u')
     # g_u = Dense(300, activation='relu', init='identity', name='V_embedding')(input_u)
 
-    sgd = SGD(lr=configuration['lr'], decay=1e-10, momentum=.9)
+    sgd = SGD(lr=configuration['lr'], decay=1e-3, momentum=.9)
     model = Model(input=input_x, output=f_x)
 
     model.compile(optimizer=sgd,
@@ -267,6 +267,7 @@ def main(args):
     Y_test = id_labels[test_set]
 
     labels_test = np.unique(Y_test)
+
 
     # X_train = np.ones((100, 4096))
     # A_train = np.ones((100, 300))
