@@ -52,7 +52,7 @@ configuration = {
     '#classes': None,
     'baseline_model': 'mlp',
     '#neighbors': 1,
-    'number_epochs': 3,
+    'number_epochs': 100,
     'n_estimators': 100,
     'max_iter': 200,
     'n_jobs': -2,
@@ -60,7 +60,8 @@ configuration = {
     'output_file': '',
     'tag': tag_,
     'C': 10.,
-    'experiment_name': 'experiment001'
+    'experiment_name': 'test',
+    'debug': True
 }
 
 if configuration['tag'] == 'cub':
@@ -234,9 +235,14 @@ def collect_splits(directory):
 
     print '-' * 50, '\nData loaded ...\n', '-' * 50
 
-    X_train = cnn_data[id_train_samples]#[:500]
-    A_train = attributes_data[id_train_samples]#[:500]
-    Y_train = id_labels[id_train_samples]#[:500]
+    if configuration['debug']:
+        X_train = cnn_data[id_train_samples][:500]
+        A_train = attributes_data[id_train_samples][:500]
+        Y_train = id_labels[id_train_samples][:500]
+    else:
+        X_train = cnn_data[id_train_samples]
+        A_train = attributes_data[id_train_samples]
+        Y_train = id_labels[id_train_samples]
 
     X_test = cnn_data[id_test_samples]
     A_test = attributes_data[id_test_samples]
@@ -286,21 +292,6 @@ def load_args():
     return vars(parser.parse_args())
 
 
-def sigal_loss(y_true, y_pred):
-    # use np.repeat to replicate y_pred
-    # and take distance against all y_trues;
-    from keras.optimizers import K
-    return K.sqrt(K.sum(K.square(y_true - y_pred), axis=1))
-
-def euclidean_distance(y_true, y_pred):
-    from keras.optimizers import K
-    return K.sqrt(K.sum(K.square(y_true - y_pred), axis=1))
-
-
-def distance(y_true, y_pred):
-    return np.sqrt(np.sum(np.square(y_true - y_pred), axis=1))
-
-
 def save_model(clf):
     file_config = configuration['exp_folder'] + 'model.json'
     file_weight = configuration['exp_folder'] + 'model_weights.h5'
@@ -309,6 +300,51 @@ def save_model(clf):
         json_file.write(model_json)
     clf.save_weights(file_weight)
     print("Saved model to disk")
+
+
+def euclidean_distance(y_true, y_pred):
+    from keras.optimizers import K
+    return K.sqrt(K.sum(K.square(y_true - y_pred), axis=1))
+
+def euclidean_distance2(y_true, y_pred):
+    from keras.optimizers import K
+    return K.sqrt(K.sum(K.square(y_true - y_pred), axis=0))
+
+def distance(y_true, y_pred):
+    return np.sqrt(np.sum(np.square(y_true - y_pred), axis=1))
+
+# TODO: find K function to repeat tensorflow
+
+def function_M(C, y_pred, Di, W_weight):
+    from keras.optimizers import K
+    #x = np.repeat(y_pred, W_weight.shape[1], axis=1)
+    x = y_pred.repeat(W_weight.shape[0])
+    #Dt = np.array([euclidean_distance(y_pred, w) for w in W_weight])
+    Dt = euclidean_distance(x, W_weight)
+    return 0.5 * K.sum(C + (0.5 * Di) - (0.5 * Dt))
+
+
+alpha = 0.6
+def sigal_loss(input):
+    def loss(y_true, y_pred):
+        from keras.optimizers import K
+        Ws, Wt, C = input
+        Ws = np.delete(Ws, np.where(Ws == y_true)[0], axis=0)
+        Di = euclidean_distance(y_true, y_pred)
+        Ms = function_M(C, y_pred, Di, Ws)
+        Mt = function_M(C, y_pred, Di, Wt)
+
+        return (alpha * Di) + (1 - alpha)*(Ms + Mt)
+    return loss
+
+
+def get_semantic_embedding():
+
+    attribute_data = np.loadtxt(configuration['embedding_attributes'][:-4] + 's.txt')
+    train_classes = np.loadtxt(configuration['dataset'] + 'features/train_classes.txt').astype(np.int) - 1
+    test_classes = np.loadtxt(configuration['dataset'] + 'features/train_classes.txt').astype(np.int) - 1
+
+    return attribute_data[train_classes], attribute_data[test_classes]
 
 def build_model():
     from keras.layers import Input, Dense
@@ -326,9 +362,23 @@ def build_model():
     sgd = SGD(lr=configuration['lr'], decay=configuration['lr_decay'], momentum=.9)
     model = Model(input=input_x, output=f_x)
 
+    Ws, Wt = get_semantic_embedding()
+
     model.compile(optimizer='sgd',
-                  loss=euclidean_distance)
+                  loss=sigal_loss((Ws, Wt, 0.01)))
     return model
+
+# def penalized_loss(noise):
+#     def loss(y_true, y_pred):
+#         from keras.optimizers import K
+#         return K.mean(K.square(y_pred - y_true) - K.square(y_true - noise), axis=-1)
+#     return loss
+# input1 = Input(batch_shape=(batch_size, timesteps, features))
+# lstm =  LSTM(features, stateful=True, return_sequences=True)(input1)
+# output1 = TimeDistributed(Dense(features, activation='sigmoid'))(lstm)
+# output2 = TimeDistributed(Dense(features, activation='sigmoid'))(lstm)
+# model = Model(input=[input1], output=[output1, output2])
+# model.compile(loss=[penalized_loss(noise=output2), penalized_loss(noise=output1)], optimizer='rmsprop')
 
 
 def save_exp_config():
