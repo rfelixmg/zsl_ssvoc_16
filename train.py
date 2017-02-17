@@ -313,31 +313,6 @@ def euclidean_distance2(y_true, y_pred):
 def distance(y_true, y_pred):
     return np.sqrt(np.sum(np.square(y_true - y_pred), axis=1))
 
-# TODO: find K function to repeat tensorflow
-
-def function_M(C, y_pred, Di, W_weight):
-    from keras.optimizers import K
-    #x = np.repeat(y_pred, W_weight.shape[1], axis=1)
-    x = y_pred.repeat(W_weight.shape[0])
-    #Dt = np.array([euclidean_distance(y_pred, w) for w in W_weight])
-    Dt = euclidean_distance(x, W_weight)
-    return 0.5 * K.sum(C + (0.5 * Di) - (0.5 * Dt))
-
-
-alpha = 0.6
-def sigal_loss(input):
-    def loss(y_true, y_pred):
-        from keras.optimizers import K
-        Ws, Wt, C = input
-        Ws = np.delete(Ws, np.where(Ws == y_true)[0], axis=0)
-        Di = euclidean_distance(y_true, y_pred)
-        Ms = function_M(C, y_pred, Di, Ws)
-        Mt = function_M(C, y_pred, Di, Wt)
-
-        return (alpha * Di) + (1 - alpha)*(Ms + Mt)
-    return loss
-
-
 def get_semantic_embedding():
 
     attribute_data = np.loadtxt(configuration['embedding_attributes'][:-4] + 's.txt')
