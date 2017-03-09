@@ -189,6 +189,14 @@ def visual_mode():
 
     return remote
 
+def get_semantic_embedding():
+
+    attribute_data = np.loadtxt(configuration['embedding_attributes'][:-4] + 's.txt')
+    train_classes = np.loadtxt(configuration['dataset'] + 'features/train_classes.txt').astype(np.int) - 1
+    test_classes = np.loadtxt(configuration['dataset'] + 'features/train_classes.txt').astype(np.int) - 1
+
+    return attribute_data[train_classes], attribute_data[test_classes]
+
 def collect_splits(directory):
     id_labels = np.loadtxt(directory + 'id_labels.txt')[:, 1].astype(np.int) - 1
     labels = np.unique(id_labels)
@@ -311,15 +319,8 @@ def euclidean_distance2(y_true, y_pred):
     return K.sqrt(K.sum(K.square(y_true - y_pred), axis=0))
 
 def distance(y_true, y_pred):
-    return np.sqrt(np.sum(np.square(y_true - y_pred), axis=1))
-
-def get_semantic_embedding():
-
-    attribute_data = np.loadtxt(configuration['embedding_attributes'][:-4] + 's.txt')
-    train_classes = np.loadtxt(configuration['dataset'] + 'features/train_classes.txt').astype(np.int) - 1
-    test_classes = np.loadtxt(configuration['dataset'] + 'features/train_classes.txt').astype(np.int) - 1
-
-    return attribute_data[train_classes], attribute_data[test_classes]
+    #return np.sqrt(np.sum(np.square(y_true - y_pred), axis=1))
+    return np.sqrt(np.sum(np.square(y_true - y_pred), axis=2))
 
 def build_model():
     from keras.layers import Input, Dense

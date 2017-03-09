@@ -1,74 +1,78 @@
+
+import theano
+import theano.tensor as T
 import os
 
-os.environ['THEANO_FLAGS'] += ",exception_verbosity='high'"
+os.environ['THEANO_FLAGS'] += ",exception_verbosity=high"
 
-import keras.backend as K
+# define tensor variables
+X = T.matrix("X")
+Y = T.matrix("Y")
+d = T.scalar('d')
+
+from keras import backend as K
+
+# euclidean_distance = lambda x, y: T.sqrt(T.sum(T.square(x - y), axis=2))
+#
+# results, updates = theano.scan(fn=euclidean_distance, outputs_info=[d])
+# x = np.zeros((40, 300), dtype=theano.config.floatX)
+# y = np.zeros((40,300), dtype=theano.config.floatX)
+#
+# print euclidean_distance(x, y)
+
+#X = T.tensor3('X')
+
+
+import theano
+import theano.tensor as T
 import numpy as np
-from keras.engine.topology import Layer
-from keras.layers import Input, Dense
-from keras.optimizers import RMSprop
-from keras.models import Model
-import numpy as np
+from keras import backend as K
 
-def nothing_to_lose(y_true, y_pred):
-    return y_pred
-
-class SigalLoss(Layer):
-    def __init__(self,  Ws, Wt, C, alpha,**kwargs):
-        self.Ws     = K.variable(Ws, name='Ws')
-        self.Wt     = K.variable(Wt, name='Ws')
-        self.C      = K.variable(C, name= 'C')
-        self.alpha  = K.variable(alpha, name= 'C')
-        super(SigalLoss, self).__init__(**kwargs)
-
-    def euclidean_distance(self, y_true, y_pred):
-        return K.sqrt(K.sum(K.square(y_true - y_pred), axis=0))
-
-    def vector_distance(self, y_true, y_pred):
-        return K.sqrt(K.sum(K.square(y_true - y_pred)))
-
-    def build(self, input_shape):
-        super(SigalLoss, self).build(input_shape)
-
-    def call(self, inputs, mask=None):
-        X, A = inputs
-
-        D = self.vector_distance(X, A)
-
-        Xt = X.repeat(self.Wt.shape[0].eval(), axis=0)
-        Dt = self.euclidean_distance(self.Wt, Xt)
-
-        Xs = X.repeat(self.Ws.shape[0].eval(), axis=0)
-        Ds = self.euclidean_distance(self.Ws, Xs)
-
-        MS = 0.5 * K.sum(self.C + 0.5 * D - 0.5 * Ds)
-        MV = 0.5 * K.sum(self.C + 0.5 * D - 0.5 * Dt)
-
-        return (self.alpha * D) + ((1 - self.alpha)*(MS + MV))
-
-    def get_output_shape_for(self, input_shape):
-        return (1,1)
+X = T.matrix('X')
+W = T.matrix('W')
 
 
-input_x = Input(shape=(4096,))
-input_u = Input(shape=(300,))
+from utils.experiments_util import get_fake_semantic_embedding, collect_fake_splits
 
-Ws = np.random.random((40,300))
-Ws[0] = np.ones(300)
-Wt = np.zeros((10,300))
+Ws, Wt = get_fake_semantic_embedding()
+Ws = K.variable(Ws)
+Wt = K.variable(Wt)
 
-visual = Dense(300,
-               name='W_embedding',
-               activation='linear')(input_x)
+def d(a, b):
+    return np.sqrt(np.sum(np.square(a - b), axis=1))
 
-sigal_layer = SigalLoss(Ws=Ws, Wt=Wt, C=0.01, alpha=0.01)
-f_x = sigal_layer([visual, input_u])
 
-model = Model(input=([input_x, input_u]), output=f_x)
-model.compile(loss=nothing_to_lose, optimizer='sgd')
+def batch_euclidean_distance(x, W):
+    return K.sqrt(K.sum(K.square(x - W), axis=1))
 
-X = np.random.random((100, 4096))
-A = np.random.normal(0.5, 1, (100,300))
-Y = np.zeros(100)
 
-model.fit([X,A], Y, nb_epoch=10, batch_size=1)
+def batch_processing(X):
+    def _batch_itr(x):
+        Ds = batch_euclidean_distance(x, Ws)
+        Dt = batch_euclidean_distance(x, Wt)
+        return Ds, Dt
+
+    output, updates = theano.scan(fn=_batch_itr, sequences=[X])
+    return output
+
+#results, updates = theano.scan(fn=lambda x, W, b_sym: T.tanh(T.dot(x,W) + b_sym), sequences=X, non_sequences=[W, b_sym])
+results, updates = theano.scan(fn=lambda x, w: batch_euclidean_distance(x, w), sequences=[X], non_sequences=[W])
+euclidean_distance = theano.function(inputs=[X, W], outputs=[results])
+
+#results, updates = theano.scan(fn=lambda x, w: self.batch_euclidean_distance(x, w), sequences=[sym_X],
+#                               non_sequences=[sym_W])
+#self.euclidean = theano.function(inputs=[sym_X, sym_W], outputs=[results])
+
+X_train, A_train, Y_train, X_test, A_test, Y_test, knn_feat, labels_test = collect_fake_splits(200)
+
+# x = np.zeros((32, 300), dtype=theano.config.floatX)
+#
+# result = batch_processing(A_train)
+
+#x = np.array([x,x])
+#w = np.ones((40,300), dtype=theano.config.floatX)
+#b = np.ones((2), dtype=theano.config.floatX)
+
+#result = euclidean_distance(x, w)[0]
+
+
