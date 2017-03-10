@@ -26,8 +26,6 @@ from utils import file_utils
 from modules.SigalLoss import SigalLoss
 
 sys.path.append(os.path.abspath('..'))
-evaluation = {}
-
 
 def load_configuration(tag_name = 'awa'):
 
@@ -35,14 +33,14 @@ def load_configuration(tag_name = 'awa'):
 
     configuration = {
         'dataset': dataset_,
-        'dataset_image': dataset_ + 'images/',
-        'dataset_text': dataset_ + 'fine_grained_description/',
-        'dataset_attributes': dataset_ + 'attributes/',
-        'embedding': dataset_ + 'features/',
+        #'dataset_image': dataset_ + 'images/',
+        #'dataset_text': dataset_ + 'fine_grained_description/',
+        #'dataset_attributes': dataset_ + 'attributes/',
+        #'embedding': dataset_ + 'features/',
         # 'embedding_image':          dataset_ + 'features/halah_googlenet/feature.txt',
         'embedding_image': dataset_ + 'features/lampert_vgg/feature.h5',
         'visual_input': 4096,
-        'embedding_text': dataset_ + 'features/bow_text/None',
+        #'embedding_text': dataset_ + 'features/bow_text/None',
         # 'embedding_attributes':     dataset_ + 'features/bow_attributes/feature.txt',
         # 'embedding_attributes': dataset_ + 'features/word2vec/feature.txt',
         'embedding_attributes': dataset_ + 'features/w2v/feature.txt',
@@ -50,7 +48,6 @@ def load_configuration(tag_name = 'awa'):
         #'embedding_attributes': dataset_ + 'features/glove/feature.txt',
         # 'estimation_attributes': dataset_ + '/attributes/class_attribute_labels_continuous.txt',
         #   mlp,
-        'retrain': False,
         #
         'number_epochs': 100,
         'lr': 0.9,
@@ -76,6 +73,7 @@ def load_configuration(tag_name = 'awa'):
         'resume': False,
         'debug': False,
         'fake_data': False,
+        'retrain': False,
         'process_per_epoch': False
     }
 
@@ -125,8 +123,20 @@ def load_args(configuration):
     parser.add_argument('-lr', '-learning_rate', default=configuration['lr'],
                         help='learning rate', required=False)
 
+    parser.add_argument('-lr_decay', '-learning_rate_decay', default=configuration['lr_decay'],
+                        help='learning rate decay', required=False)
+
+    parser.add_argument('-lambda', '-lambda_regularizer', default=configuration['lamda_regularizer'],
+                        help='lambda regularizer', required=False)
+
     parser.add_argument('-rt', '-re_train', default=configuration['retrain'],
-                        help='Re-Train the network', required=False)
+                        help='Re-Train the network {path to the experiment directory}', required=False)
+
+    parser.add_argument('-debug', default=configuration['debug'],
+                        help='Debug mode {True, False}', required=False)
+
+    parser.add_argument('-ppe', default=configuration['process_per_epoch'],
+                        help='Process per epoch {True, False}', required=False)
 
     parser.add_argument('-verbose', default=False,
                         help='Verbose debug mode', required=False)
@@ -158,6 +168,8 @@ def load_args(configuration):
 
     configuration['retrain'] = bool(args['rt'])
     configuration['lr'] = float(args['lr'])
+    configuration['lr_decay'] = float(args['lr_decay'])
+    configuration['lamda_regularizer'] = float(args['lambda'])
     configuration['number_epochs'] = int(args['ne'])
 
     save_exp_config(f_name, configuration)
@@ -227,8 +239,12 @@ def save_model(clf, name='model'):
 def load_validation_data(Y, configuration):
 
     try:
-        ids_train = np.loadtxt(configuration['dataset'] + 'tmp/ids_train.txt').astype(np.int)
-        ids_valid = np.loadtxt(configuration['dataset'] + 'tmp/ids_valid.txt').astype(np.int)
+        if configuration['debug']:
+            ids_train = np.loadtxt(configuration['dataset'] + 'tmp/debug_ids_train.txt').astype(np.int)
+            ids_valid = np.loadtxt(configuration['dataset'] + 'tmp/debug_ids_valid.txt').astype(np.int)
+        else:
+            ids_train = np.loadtxt(configuration['dataset'] + 'tmp/ids_train.txt').astype(np.int)
+            ids_valid = np.loadtxt(configuration['dataset'] + 'tmp/ids_valid.txt').astype(np.int)
 
         return ids_train, ids_valid
     except:
@@ -236,9 +252,12 @@ def load_validation_data(Y, configuration):
 
         cv = cross_validation.ShuffleSplit(Y.shape[0], test_size=0.10, random_state=True)
         ids_train, ids_valid = next(iter(cv))
-
-        np.savetxt(configuration['dataset'] + 'tmp/ids_train.txt', ids_train, fmt='%d')
-        np.savetxt(configuration['dataset'] + 'tmp/ids_valid.txt', ids_valid, fmt='%d')
+        if configuration['debug']:
+            np.savetxt(configuration['dataset'] + 'tmp/debug_ids_train.txt', ids_train, fmt='%d')
+            np.savetxt(configuration['dataset'] + 'tmp/debug_ids_valid.txt', ids_valid, fmt='%d')
+        else:
+            np.savetxt(configuration['dataset'] + 'tmp/ids_train.txt', ids_train, fmt='%d')
+            np.savetxt(configuration['dataset'] + 'tmp/ids_valid.txt', ids_valid, fmt='%d')
 
         return ids_train, ids_valid
 
@@ -418,6 +437,7 @@ def train(data, clf, visual, configuration):
     ids_train, ids_valid = load_validation_data(data['Y_train'], configuration)
 
     if configuration['process_per_epoch']:
+
         knn_train = build_knn({'feat': data['feat_train'], 'label': data['label_train']}, configuration=configuration)
         knn_test = build_knn({'feat': data['feat_test'], 'label': data['label_test']}, configuration=configuration)
 
@@ -425,9 +445,13 @@ def train(data, clf, visual, configuration):
 
         fig_p = plt.figure(figsize=(30, 15))
         ax = fig_p.add_subplot(111)
-        plt.axis((0, configuration['number_epochs'] + 1, 0, 1))
-
         for i in range(configuration['number_epochs']):
+
+            start_ppe = time.time()
+
+            lr = (clf.optimizer.lr * (1. / (1. + clf.optimizer.decay * i)))
+            clf.optimizer.lr.set_value(lr.eval())
+
             h = clf.fit([data['X_train'][ids_train], data['A_train'][ids_train]],
                         data['Y_train'][ids_train],
                         validation_data=([data['X_train'][ids_valid], data['A_train'][ids_valid]],
@@ -444,10 +468,18 @@ def train(data, clf, visual, configuration):
             embd_test = visual.predict(data['X_test'])
             acc_test = knn_test.score(embd_test, data['Y_test'])
 
-            print 'Epoch [%d]: ' % i
-            print 'Learning rate: ', (clf.optimizer.lr * (1. / (1. + clf.optimizer.decay * i))).eval()
-            print 'Accuracy Training: ', acc_train
-            print 'Accuracy Testing: ', acc_test
+            print '\n=========================== Epoch [%d / %d]===========================' % \
+                  (i, configuration['number_epochs'])
+            print 'Learning rate: ', lr.eval()
+            print 'Accuracy Training: %f (K-NN)' % acc_train
+            print 'Accuracy Testing: %f (ZSL)' % acc_test
+
+            time_ppe = time.time() - start_ppe
+            total_ppe = time_ppe * (configuration['number_epochs'] - i)
+            expected_finish = datetime.datetime.now() + datetime.timedelta(seconds=total_ppe)
+
+            print 'Epoch processed in %02d seconds | estimative at: [%s]' % \
+                  (time_ppe, '{:%d, %b at :%H:%M:%S}'.format(expected_finish))
 
             history['acc_train'].append(acc_train)
             history['acc_test'].append(acc_test)
@@ -456,8 +488,9 @@ def train(data, clf, visual, configuration):
             if i % 10 == 0:
                 # summarize history for loss
                 ax.cla()
-                ax.plot(history['acc_train'], np.arange(len(history['acc_train'])))
-                ax.plot(history['acc_test'], np.arange(len(history['acc_test'])))
+                plt.axis((0, configuration['number_epochs'] + 1, 0, 1))
+                ax.plot(history['acc_train'])
+                ax.plot(history['acc_test'])
 
                 plt.title('model accuracy')
                 plt.ylabel('accuracy')
@@ -465,7 +498,10 @@ def train(data, clf, visual, configuration):
                 plt.legend(['train', 'test'], loc='upper left')
                 plt.show(block=False)
 
-            print '=+=+==' * 20
+            print '\n %s \n' % ('==*==' * 20)
+
+
+
 
 
     else:
@@ -532,6 +568,8 @@ def evaluate_model(id_class, labels_test, zsl_pred, zsl_scores, Y_test, zsl_test
     # PLOT ROC                                                           #
     ######################################################################
 
+    evaluation = {}
+
     results = get_roc_data(y_gt=Y_test, y_pred=zsl_pred, y_scores=zsl_scores, labels=labels_test)
     plot_roc(results, id_class, configuration['exp_folder'] + '/%sroc_curve' % aux_)
 
@@ -546,6 +584,8 @@ def evaluate_model(id_class, labels_test, zsl_pred, zsl_scores, Y_test, zsl_test
                                                      zsl_test,
                                                      labels=labels_test,
                                                      average='weighted')
+
+    print json.dumps(evaluation, sort_keys=True, indent=4)
 
     cm_ = metrics.confusion_matrix(Y_test,
                                    zsl_test,
@@ -580,8 +620,6 @@ def evaluate_model(id_class, labels_test, zsl_pred, zsl_scores, Y_test, zsl_test
         }
 
     evaluation['~evaluation_per_class'] = eval_per_class
-
-    print json.dumps(evaluation, sort_keys=True, indent=4)
 
     with open(configuration['exp_folder'] + '%sevaluation.json' % aux_, 'w') as outfile:
         obj_ = {'evaluation': evaluation}
@@ -645,9 +683,9 @@ if __name__ == '__main__':
 
     # Train
     zsl_test, zsl_scores, zsl_pred = run_zsl(visual, data_package['X_train'], data_package['feat_train'],
-                                             data_package['label_train'], configuration=configuration)
+                                             data_package['label_train'], configuration=configuration, aux_='train_')
     evaluation = evaluate_model(id_class, data_package['label_train'], zsl_pred, zsl_scores,
-                                data_package['Y_train'], zsl_test, configuration=configuration)
+                                data_package['Y_train'], zsl_test, configuration=configuration, aux_='train_')
 
     plt.show(block=True)
     plt.clf()
